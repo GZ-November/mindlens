@@ -2706,11 +2706,14 @@
   <script>
     window.addEventListener('error', (e) => { console.error('Global error:', e.error || e.message); });
     window.addEventListener('unhandledrejection', (e) => { console.error('Unhandled rejection:', e.reason); });
-    // Fallback: 如果 module 脚本 8 秒内未加载完成，手动渲染伙伴选择
+    // Fallback: module 脚本真正没有启动时，才手动渲染伙伴选择。
+    // 慢设备加载 three.js 可能超过几秒；只要 canvas 或伙伴卡片已经出现，就不要误报 3D 失败。
     setTimeout(function() {
       if (window._mindlensOK) return;
+      var hasCanvas = !!document.querySelector('#canvas-container canvas');
       console.warn('MindLens module 脚本未加载完成，启动 fallback');
       var grid = document.getElementById('personaGrid');
+      if (hasCanvas || (grid && grid.children.length > 0)) return;
       if (!grid || grid.children.length > 0) return;
       var personas = [
         { id: 'friend', icon: '🌙', name: '温柔但清醒的朋友', desc: '不会顺着你说，但也不指责', tone: '我听到你了，但我们也看看' },
@@ -2735,9 +2738,9 @@
       });
       var errDiv = document.createElement('div');
       errDiv.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:rgba(232,123,110,0.15);border:1px solid rgba(232,123,110,0.4);color:#e87b6e;padding:10px 20px;border-radius:10px;font-size:12px;z-index:200;max-width:90%;text-align:center;';
-      errDiv.textContent = '⚠️ 3D 引擎加载失败，已切换到简化模式。选择伙伴后刷新即可使用完整功能。';
+      errDiv.textContent = '⚠️ 页面加载较慢，已先启用简化伙伴选择。刷新后可继续尝试完整星云。';
       document.body.appendChild(errDiv);
-    }, 3000);
+    }, 15000);
   </script>
   <div id="canvas-container"></div>
   <div id="vignette"></div>
@@ -3342,12 +3345,43 @@
     scene.fog = new THREE.FogExp2(0x050810, 0.006);
     const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 500);
     camera.position.set(0, 25, 75);
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    function createFallbackRenderer() {
+      const fallbackCanvas = document.createElement('canvas');
+      fallbackCanvas.className = 'webgl-fallback-canvas';
+      fallbackCanvas.style.cssText = 'width:100%;height:100%;display:block;background:radial-gradient(circle at 50% 40%, rgba(247,223,144,0.16), rgba(92,196,186,0.08) 28%, rgba(5,8,16,1) 72%);';
+      return {
+        domElement: fallbackCanvas,
+        setSize(width, height) {
+          fallbackCanvas.width = Math.max(1, Math.floor(width));
+          fallbackCanvas.height = Math.max(1, Math.floor(height));
+        },
+        setPixelRatio() {},
+        setClearColor() {},
+        render() {},
+      };
+    }
+    let renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({
+        antialias: !isMobile,
+        alpha: false,
+        powerPreference: 'high-performance',
+      });
+      window._mindlens3DReady = true;
+    } catch (err) {
+      _webglFailed = true;
+      window._mindlens3DReady = false;
+      window._mindlensWebGLError = err && (err.message || String(err));
+      console.warn('MindLens WebGL renderer failed, using static fallback:', err);
+      document.body.classList.add('webgl-fallback');
+      renderer = createFallbackRenderer();
+    }
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setClearColor(0x050810, 1);
     renderer.domElement.setAttribute('aria-label', '星云画布，拖动旋转，点击行星查看字条。键盘用户请在下方使用下拉列表选择行星。');
     container.appendChild(renderer.domElement);
+    window._mindlensOK = true; // 3D 初始化阶段已通过或已进入可用降级，取消启动 fallback。
 
     /* Task 31: 昼夜星云主题 —— 根据当前小时调整星云色调 */
     const TIME_THEMES = {
