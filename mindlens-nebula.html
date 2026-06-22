@@ -2706,6 +2706,38 @@
   <script>
     window.addEventListener('error', (e) => { console.error('Global error:', e.error || e.message); });
     window.addEventListener('unhandledrejection', (e) => { console.error('Unhandled rejection:', e.reason); });
+    // Fallback: 如果 module 脚本 3 秒内未加载完成，手动渲染伙伴选择
+    setTimeout(function() {
+      if (window._mindlensOK) return;
+      console.warn('MindLens module 脚本未加载完成，启动 fallback');
+      var grid = document.getElementById('personaGrid');
+      if (!grid || grid.children.length > 0) return;
+      var personas = [
+        { id: 'friend', icon: '🌙', name: '温柔但清醒的朋友', desc: '不会顺着你说，但也不指责', tone: '我听到你了，但我们也看看' },
+        { id: 'future', icon: '🔮', name: '未来的我', desc: '一个已经走过这些的你', tone: '我以前也这样想过' },
+        { id: 'ideal', icon: '✨', name: '我想成为的人', desc: '你向往的那个自己', tone: '如果是我想要成为的样子' },
+        { id: 'teacher', icon: '🌿', name: '我信任的老师', desc: '有经验，但不端着', tone: '这种事我见过不少' },
+        { id: 'partner', icon: '⚔️', name: '成长型伙伴', desc: '像动漫里一起变强的那种', tone: '我们一起搞定这个' },
+        { id: 'protector', icon: '🛡️', name: '小时候的保护者', desc: '让你觉得安全的那个人', tone: '没事的，我在' }
+      ];
+      personas.forEach(function(p) {
+        var card = document.createElement('div');
+        card.className = 'persona-card';
+        card.style.cssText = 'padding:18px 14px;border-radius:14px;cursor:pointer;background:rgba(12,18,28,0.5);backdrop-filter:blur(16px);border:1px solid rgba(247,223,144,0.08);text-align:center;transition:all 0.3s;';
+        card.innerHTML = '<span class="pc-icon" style="font-size:28px;margin-bottom:8px;display:block;">' + p.icon + '</span><div class="pc-name" style="font-size:14px;font-weight:600;margin-bottom:4px;">' + p.name + '</div><div class="pc-desc" style="font-size:11px;color:rgba(245,240,230,0.45);line-height:1.5;">' + p.desc + '</div>';
+        card.addEventListener('click', function() {
+          try { localStorage.setItem('mindlens-state', JSON.stringify({ currentPersona: p, version: 1, planets: [], connections: [] })); } catch(e) {}
+          document.getElementById('onboarding').classList.add('hidden');
+          alert('伙伴已选择：' + p.name + '\n\n如果页面功能异常，请刷新重试。');
+          location.reload();
+        });
+        grid.appendChild(card);
+      });
+      var errDiv = document.createElement('div');
+      errDiv.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:rgba(232,123,110,0.15);border:1px solid rgba(232,123,110,0.4);color:#e87b6e;padding:10px 20px;border-radius:10px;font-size:12px;z-index:200;max-width:90%;text-align:center;';
+      errDiv.textContent = '⚠️ 3D 引擎加载失败，已切换到简化模式。选择伙伴后刷新即可使用完整功能。';
+      document.body.appendChild(errDiv);
+    }, 3000);
   </script>
   <div id="canvas-container"></div>
   <div id="vignette"></div>
@@ -3304,11 +3336,17 @@
     // 移动端 / 减少动效检测（用于降低粒子数量与自动旋转）
     let isMobile = window.innerWidth < 600;
     const isReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const scene = new THREE.Scene();
+    // Three.js 初始化（try-catch 防止 WebGL 不可用时中断整个脚本）
+    let scene, camera, renderer;
+    let personaMat = null, haloMat = null, persona = null, halo = null;
+    let controls = null, clock = null, nebulaMat = null, bgMat = null;
+    let _webglFailed = false;
+    try {
+      scene = new THREE.Scene();
     scene.fog = new THREE.FogExp2(0x050810, 0.006);
-    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 500);
+    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 500);
     camera.position.set(0, 25, 75);
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setClearColor(0x050810, 1);
@@ -3345,12 +3383,12 @@
     }
     applyTimeTheme();
     setInterval(applyTimeTheme, 60 * 60 * 1000); // 每小时检查一次
-    const controls = new OrbitControls(camera, renderer.domElement);
+    controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true; controls.dampingFactor = 0.06;
     controls.autoRotate = !isReducedMotion; controls.autoRotateSpeed = isReducedMotion ? 0 : 0.25;
     controls.minDistance = 25; controls.maxDistance = 140;
     controls.maxPolarAngle = Math.PI * 0.85; controls.enablePan = false;
-    const clock = new THREE.Clock();
+    clock = new THREE.Clock();
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
 
@@ -3379,7 +3417,7 @@
     nebulaGeo.setAttribute('aColor', new THREE.BufferAttribute(nCol, 3));
     nebulaGeo.setAttribute('aSize', new THREE.BufferAttribute(nSize, 1));
     nebulaGeo.setAttribute('aOffset', new THREE.BufferAttribute(nOff, 1));
-    const nebulaMat = new THREE.ShaderMaterial({
+    nebulaMat = new THREE.ShaderMaterial({
       uniforms: { uTime: { value: 0 }, uMood: { value: 0 }, uMoodColor: { value: new THREE.Color(0xfff5d6) }, uMoodMix: { value: 0 } },
       vertexShader: `attribute float aSize; attribute vec3 aColor; attribute float aOffset; varying vec3 vColor; varying float vAlpha; uniform float uTime; uniform float uMood; uniform vec3 uMoodColor; uniform float uMoodMix;
         void main() { vec3 baseCol = mix(aColor, uMoodColor, uMoodMix); vColor = baseCol; vec3 pos = position; float t = uTime * 0.25;
@@ -3459,7 +3497,7 @@
     bgGeo.setAttribute('position', new THREE.BufferAttribute(bgP, 3));
     bgGeo.setAttribute('aSize', new THREE.BufferAttribute(bgS, 1));
     bgGeo.setAttribute('aOffset', new THREE.BufferAttribute(bgO, 1));
-    const bgMat = new THREE.ShaderMaterial({
+    bgMat = new THREE.ShaderMaterial({
       uniforms: { uTime: { value: 0 } },
       vertexShader: `attribute float aSize; attribute float aOffset; varying float vAlpha; uniform float uTime; void main() { vec4 mv = modelViewMatrix*vec4(position,1.0); gl_PointSize = aSize*(200.0/max(1.0,-mv.z)); gl_Position = projectionMatrix*mv; vAlpha = 0.3+0.4*(0.5+0.5*sin(uTime*0.8+aOffset*10.0)); }`,
       fragmentShader: `varying float vAlpha; void main() { vec2 uv = gl_PointCoord-0.5; float d = length(uv); if(d>0.5) discard; float a = smoothstep(0.5,0.0,d); gl_FragColor = vec4(0.95,0.92,0.85, a*vAlpha); }`,
@@ -3468,23 +3506,40 @@
     scene.add(new THREE.Points(bgGeo, bgMat));
 
     /* 希望人格光体 */
-    const personaMat = new THREE.ShaderMaterial({
+    personaMat = new THREE.ShaderMaterial({
       uniforms: { uTime: {value:0}, uColor: {value: new THREE.Color(0xfff5d6)}, uBreath: {value:1}, uActive: {value:0} },
       vertexShader: `varying vec3 vNormal; varying vec3 vView; void main() { vNormal = normalize(normalMatrix*normal); vec4 mv = modelViewMatrix*vec4(position,1.0); vView = normalize(-mv.xyz); gl_Position = projectionMatrix*mv; }`,
       fragmentShader: `varying vec3 vNormal; varying vec3 vView; uniform vec3 uColor; uniform float uTime; uniform float uBreath; uniform float uActive;
         void main() { float f = 1.0-max(0.0,dot(vNormal,vView)); f = pow(f,1.5); float inner = 0.25+0.15*sin(uTime*1.8); vec3 col = uColor*(inner+f*1.8)*uBreath; col += uColor*uActive*0.5; float a = f*0.85+0.25; gl_FragColor = vec4(col, a); }`,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     });
-    const persona = new THREE.Mesh(new THREE.SphereGeometry(3, 32, 32), personaMat);
+    persona = new THREE.Mesh(new THREE.SphereGeometry(3, 32, 32), personaMat);
     scene.add(persona);
-    const haloMat = new THREE.ShaderMaterial({
+    haloMat = new THREE.ShaderMaterial({
       uniforms: { uTime: {value:0}, uColor: {value: new THREE.Color(0xfff5d6)} },
       vertexShader: `varying vec3 vNormal; varying vec3 vView; void main() { vNormal = normalize(normalMatrix*normal); vec4 mv = modelViewMatrix*vec4(position,1.0); vView = normalize(-mv.xyz); gl_Position = projectionMatrix*mv; }`,
       fragmentShader: `varying vec3 vNormal; varying vec3 vView; uniform vec3 uColor; uniform float uTime; void main() { float f = 1.0-max(0.0,dot(vNormal,vView)); f = pow(f,3.0); float pulse = 0.6+0.4*sin(uTime*1.2); gl_FragColor = vec4(uColor, f*0.15*pulse); }`,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     });
-    const halo = new THREE.Mesh(new THREE.SphereGeometry(5, 32, 32), haloMat);
+    halo = new THREE.Mesh(new THREE.SphereGeometry(5, 32, 32), haloMat);
     scene.add(halo);
+    } catch(e) {
+      console.error('Three.js 初始化失败:', e);
+      _webglFailed = true;
+      // 创建 mock 对象，防止后续代码引用 null 报错
+      const _mockUniforms = { uTime:{value:0}, uColor:{value:{}}, uBreath:{value:1}, uActive:{value:0}, uMood:{value:0}, uMoodMix:{value:0}, uMoodColor:{value:{lerp(){}}} };
+      personaMat = { uniforms: _mockUniforms };
+      haloMat = { uniforms: _mockUniforms };
+      nebulaMat = { uniforms: _mockUniforms };
+      bgMat = { uniforms: { uTime:{value:0} } };
+      scene = { add(){}, fog: null, background: null };
+      camera = { position: {set(){}}, lookAt(){} };
+      renderer = { domElement: document.createElement('canvas'), setSize(){}, setPixelRatio(){}, setClearColor(){}, render(){} };
+      controls = { autoRotate: false, autoRotateSpeed: 0, target: {set(){}}, update(){}, enableDamping: false, minDistance: 0, maxDistance: 0, maxPolarAngle: 0, enablePan: false };
+      clock = { getElapsedTime: () => 0 };
+      persona = { scale: { setScalar(){} }, position: { copy(){} } };
+      halo = { scale: { setScalar(){} } };
+    }
 
     /* ============================================================
        行星系统
@@ -3779,7 +3834,7 @@
     }
     function animate() {
       mainRAFId = requestAnimationFrame(animate);
-      if (pageHidden) return; // 页面隐藏时暂停渲染，节省资源
+      if (_webglFailed || pageHidden) return; // WebGL 失败或页面隐藏时暂停渲染
       const t = clock.getElapsedTime();
       // 情绪颜色平滑过渡
       moodMixCurrent += (moodMixTarget - moodMixCurrent) * 0.02;
@@ -3987,8 +4042,8 @@
       document.getElementById('personaLabel').textContent = p.icon + ' ' + p.name;
       document.getElementById('personaLabel').style.display = 'inline';
       const colors = { future: 0xfff5d6, friend: 0xd6e8ff, teacher: 0xd6ffe8, partner: 0xffe8d6, protector: 0xe8d6ff, ideal: 0xfff0a0 };
-      personaMat.uniforms.uColor.value = new THREE.Color(colors[p.id] || 0xfff5d6);
-      haloMat.uniforms.uColor.value = new THREE.Color(colors[p.id] || 0xfff5d6);
+      if (personaMat) personaMat.uniforms.uColor.value = new THREE.Color(colors[p.id] || 0xfff5d6);
+      if (haloMat) haloMat.uniforms.uColor.value = new THREE.Color(colors[p.id] || 0xfff5d6);
       saveState();
       // 跳过强制风格选择，直接进入主界面（默认 clear，可在主界面"换一种陪法"调整）
       finishOnboarding(p);
@@ -7272,8 +7327,8 @@ ${planet.note ? '当时对自己的留言：' + planet.note : ''}
           const pl = document.getElementById('personaLabel');
           if (pl) { pl.textContent = currentPersona.icon + ' ' + currentPersona.name; pl.style.display = 'inline'; }
           const colors = { future: 0xfff5d6, friend: 0xd6e8ff, teacher: 0xd6ffe8, partner: 0xffe8d6, protector: 0xe8d6ff, ideal: 0xfff0a0 };
-          personaMat.uniforms.uColor.value = new THREE.Color(colors[currentPersona.id] || 0xfff5d6);
-          haloMat.uniforms.uColor.value = new THREE.Color(colors[currentPersona.id] || 0xfff5d6);
+          if (personaMat) personaMat.uniforms.uColor.value = new THREE.Color(colors[currentPersona.id] || 0xfff5d6);
+          if (haloMat) haloMat.uniforms.uColor.value = new THREE.Color(colors[currentPersona.id] || 0xfff5d6);
           document.getElementById('onboarding').classList.add('hidden');
         }
         // 恢复行星（带数据校验，防止损坏的 localStorage 崩溃）
@@ -11824,6 +11879,7 @@ ${planet.note ? '当时对自己的留言：' + planet.note : ''}
       checkBadges();
       showBadgeUnlock = oldShow; // 恢复
     }, 2000);
+    window._mindlensOK = true; // 标记 module 脚本加载完成
   </script>
 </body>
 </html>
