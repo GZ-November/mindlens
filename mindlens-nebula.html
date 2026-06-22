@@ -3811,6 +3811,8 @@
         return 1.08 - 0.08 * easeInOut((cycle - 11) / 8);
       }
     }
+    // 提前声明，避免 animate() 中 TDZ 引用错误
+    let ecoHaloMeshes = []; // 生态圈光晕 mesh 数组
     function animate() {
       mainRAFId = requestAnimationFrame(animate);
       if (_webglFailed || pageHidden) return; // WebGL 失败或页面隐藏时暂停渲染
@@ -10050,7 +10052,7 @@ ${planet.note ? '当时对自己的留言：' + planet.note : ''}
 
     // SubTask 7.2: 数据结构
     let ecoClusters = []; // [{id, name, color, planetIds, emotion, insight}]
-    let ecoHaloMeshes = []; // 生态圈光晕 mesh 数组
+    ecoHaloMeshes = []; // 生态圈光晕 mesh 数组（声明已提前至 animate 之前）
 
     // SubTask 7.1: 情绪相似度算法（简单算法，不引入 ML 库）
     function clusterPlanetsByEmotion() {
