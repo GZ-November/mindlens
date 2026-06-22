@@ -2706,7 +2706,7 @@
   <script>
     window.addEventListener('error', (e) => { console.error('Global error:', e.error || e.message); });
     window.addEventListener('unhandledrejection', (e) => { console.error('Unhandled rejection:', e.reason); });
-    // Fallback: 如果 module 脚本 3 秒内未加载完成，手动渲染伙伴选择
+    // Fallback: 如果 module 脚本 8 秒内未加载完成，手动渲染伙伴选择
     setTimeout(function() {
       if (window._mindlensOK) return;
       console.warn('MindLens module 脚本未加载完成，启动 fallback');
@@ -3336,17 +3336,13 @@
     // 移动端 / 减少动效检测（用于降低粒子数量与自动旋转）
     let isMobile = window.innerWidth < 600;
     const isReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    // Three.js 初始化（try-catch 防止 WebGL 不可用时中断整个脚本）
-    let scene, camera, renderer;
-    let personaMat = null, haloMat = null, persona = null, halo = null;
-    let controls = null, clock = null, nebulaMat = null, bgMat = null;
+    // Three.js 初始化
     let _webglFailed = false;
-    try {
-      scene = new THREE.Scene();
+    const scene = new THREE.Scene();
     scene.fog = new THREE.FogExp2(0x050810, 0.006);
-    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 500);
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 500);
     camera.position.set(0, 25, 75);
-    renderer = new THREE.WebGLRenderer({ antialias: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setClearColor(0x050810, 1);
@@ -3383,12 +3379,12 @@
     }
     applyTimeTheme();
     setInterval(applyTimeTheme, 60 * 60 * 1000); // 每小时检查一次
-    controls = new OrbitControls(camera, renderer.domElement);
+    const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true; controls.dampingFactor = 0.06;
     controls.autoRotate = !isReducedMotion; controls.autoRotateSpeed = isReducedMotion ? 0 : 0.25;
     controls.minDistance = 25; controls.maxDistance = 140;
     controls.maxPolarAngle = Math.PI * 0.85; controls.enablePan = false;
-    clock = new THREE.Clock();
+    const clock = new THREE.Clock();
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
 
@@ -3417,7 +3413,7 @@
     nebulaGeo.setAttribute('aColor', new THREE.BufferAttribute(nCol, 3));
     nebulaGeo.setAttribute('aSize', new THREE.BufferAttribute(nSize, 1));
     nebulaGeo.setAttribute('aOffset', new THREE.BufferAttribute(nOff, 1));
-    nebulaMat = new THREE.ShaderMaterial({
+    const nebulaMat = new THREE.ShaderMaterial({
       uniforms: { uTime: { value: 0 }, uMood: { value: 0 }, uMoodColor: { value: new THREE.Color(0xfff5d6) }, uMoodMix: { value: 0 } },
       vertexShader: `attribute float aSize; attribute vec3 aColor; attribute float aOffset; varying vec3 vColor; varying float vAlpha; uniform float uTime; uniform float uMood; uniform vec3 uMoodColor; uniform float uMoodMix;
         void main() { vec3 baseCol = mix(aColor, uMoodColor, uMoodMix); vColor = baseCol; vec3 pos = position; float t = uTime * 0.25;
@@ -3497,7 +3493,7 @@
     bgGeo.setAttribute('position', new THREE.BufferAttribute(bgP, 3));
     bgGeo.setAttribute('aSize', new THREE.BufferAttribute(bgS, 1));
     bgGeo.setAttribute('aOffset', new THREE.BufferAttribute(bgO, 1));
-    bgMat = new THREE.ShaderMaterial({
+    const bgMat = new THREE.ShaderMaterial({
       uniforms: { uTime: { value: 0 } },
       vertexShader: `attribute float aSize; attribute float aOffset; varying float vAlpha; uniform float uTime; void main() { vec4 mv = modelViewMatrix*vec4(position,1.0); gl_PointSize = aSize*(200.0/max(1.0,-mv.z)); gl_Position = projectionMatrix*mv; vAlpha = 0.3+0.4*(0.5+0.5*sin(uTime*0.8+aOffset*10.0)); }`,
       fragmentShader: `varying float vAlpha; void main() { vec2 uv = gl_PointCoord-0.5; float d = length(uv); if(d>0.5) discard; float a = smoothstep(0.5,0.0,d); gl_FragColor = vec4(0.95,0.92,0.85, a*vAlpha); }`,
@@ -3506,40 +3502,23 @@
     scene.add(new THREE.Points(bgGeo, bgMat));
 
     /* 希望人格光体 */
-    personaMat = new THREE.ShaderMaterial({
+    const personaMat = new THREE.ShaderMaterial({
       uniforms: { uTime: {value:0}, uColor: {value: new THREE.Color(0xfff5d6)}, uBreath: {value:1}, uActive: {value:0} },
       vertexShader: `varying vec3 vNormal; varying vec3 vView; void main() { vNormal = normalize(normalMatrix*normal); vec4 mv = modelViewMatrix*vec4(position,1.0); vView = normalize(-mv.xyz); gl_Position = projectionMatrix*mv; }`,
       fragmentShader: `varying vec3 vNormal; varying vec3 vView; uniform vec3 uColor; uniform float uTime; uniform float uBreath; uniform float uActive;
         void main() { float f = 1.0-max(0.0,dot(vNormal,vView)); f = pow(f,1.5); float inner = 0.25+0.15*sin(uTime*1.8); vec3 col = uColor*(inner+f*1.8)*uBreath; col += uColor*uActive*0.5; float a = f*0.85+0.25; gl_FragColor = vec4(col, a); }`,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     });
-    persona = new THREE.Mesh(new THREE.SphereGeometry(3, 32, 32), personaMat);
+    const persona = new THREE.Mesh(new THREE.SphereGeometry(3, 32, 32), personaMat);
     scene.add(persona);
-    haloMat = new THREE.ShaderMaterial({
+    const haloMat = new THREE.ShaderMaterial({
       uniforms: { uTime: {value:0}, uColor: {value: new THREE.Color(0xfff5d6)} },
       vertexShader: `varying vec3 vNormal; varying vec3 vView; void main() { vNormal = normalize(normalMatrix*normal); vec4 mv = modelViewMatrix*vec4(position,1.0); vView = normalize(-mv.xyz); gl_Position = projectionMatrix*mv; }`,
       fragmentShader: `varying vec3 vNormal; varying vec3 vView; uniform vec3 uColor; uniform float uTime; void main() { float f = 1.0-max(0.0,dot(vNormal,vView)); f = pow(f,3.0); float pulse = 0.6+0.4*sin(uTime*1.2); gl_FragColor = vec4(uColor, f*0.15*pulse); }`,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     });
-    halo = new THREE.Mesh(new THREE.SphereGeometry(5, 32, 32), haloMat);
+    const halo = new THREE.Mesh(new THREE.SphereGeometry(5, 32, 32), haloMat);
     scene.add(halo);
-    } catch(e) {
-      console.error('Three.js 初始化失败:', e);
-      _webglFailed = true;
-      // 创建 mock 对象，防止后续代码引用 null 报错
-      const _mockUniforms = { uTime:{value:0}, uColor:{value:{}}, uBreath:{value:1}, uActive:{value:0}, uMood:{value:0}, uMoodMix:{value:0}, uMoodColor:{value:{lerp(){}}} };
-      personaMat = { uniforms: _mockUniforms };
-      haloMat = { uniforms: _mockUniforms };
-      nebulaMat = { uniforms: _mockUniforms };
-      bgMat = { uniforms: { uTime:{value:0} } };
-      scene = { add(){}, fog: null, background: null };
-      camera = { position: {set(){}}, lookAt(){} };
-      renderer = { domElement: document.createElement('canvas'), setSize(){}, setPixelRatio(){}, setClearColor(){}, render(){} };
-      controls = { autoRotate: false, autoRotateSpeed: 0, target: {set(){}}, update(){}, enableDamping: false, minDistance: 0, maxDistance: 0, maxPolarAngle: 0, enablePan: false };
-      clock = { getElapsedTime: () => 0 };
-      persona = { scale: { setScalar(){} }, position: { copy(){} } };
-      halo = { scale: { setScalar(){} } };
-    }
 
     /* ============================================================
        行星系统
